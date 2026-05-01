@@ -19,13 +19,18 @@ type Game struct {
 	pointerFront coordinatesf
 	pointerPivot coordinatesf
 	selectedMenuItemIndex int
-	menuItemAnimationEnds []time.Time
+	menuItems []*menuItem
 
 	pointerWidth float64
 	pointerLength float64
 	pointerImage *ebiten.Image
 	backgroundImage *ebiten.Image
 	textFaceSource *text.GoTextFaceSource
+}
+
+type menuItem struct {
+	text string
+	animationEnd time.Time
 }
 
 func NewGame() *Game {
@@ -44,11 +49,16 @@ func NewGame() *Game {
 		log.Fatal(error)
 	}
 
+	menuItems := make([]*menuItem, len(menuItemTexts))
+	for menuItemIndex, menuItemText := range menuItemTexts {
+		menuItems[menuItemIndex] = &menuItem{ text: menuItemText, }
+	}
+
 	return &Game{
-		pointerFront: coordinatesf{x: 200, y: 200},
+		pointerFront: coordinatesf{200, 200},
 		pointerPivot: nilCoordinates,
 		selectedMenuItemIndex: -1,
-		menuItemAnimationEnds: make([]time.Time, len(menuItems)),
+		menuItems: menuItems,
 
 		pointerWidth: float64(pointerImage.Bounds().Dy()),
 		pointerLength: float64(pointerImage.Bounds().Dx()),
@@ -59,13 +69,13 @@ func NewGame() *Game {
 }
 
 func (g *Game) Layout(outsideWidth int, outsideHeight int) (screenWidth int, screenHeight int) {
-	g.screenSize = coordinates{x: outsideWidth, y: outsideHeight}
+	g.screenSize = coordinates{outsideWidth, outsideHeight}
 	return outsideWidth, outsideHeight
 }
 
 func (g *Game) Update() error {
 	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		if g.selectedMenuItemIndex == len(menuItems) - 1 {
+		if g.selectedMenuItemIndex == len(g.menuItems) - 1 {
 			return ebiten.Termination
 		}
 	}
@@ -82,13 +92,13 @@ func (g *Game) Update() error {
 }
 
 func (g *Game) updateCursorPointer(cursorX int, cursorY int) {
-	g.pointerFront = coordinatesf{x: float64(cursorX), y: float64(cursorY)}
+	g.pointerFront = coordinatesf{float64(cursorX), float64(cursorY)}
 
 	pointerAngle := math.Atan2(g.pointerFront.y - g.pointerPivot.y, g.pointerFront.x - g.pointerPivot.x)
 	pointerPivotLocation := g.pointerLength * pointerPivotLengthRatio
 	g.pointerPivot = coordinatesf{
-		x: g.pointerFront.x - pointerPivotLocation * math.Cos(pointerAngle),
-		y: g.pointerFront.y - pointerPivotLocation * math.Sin(pointerAngle),
+		g.pointerFront.x - pointerPivotLocation * math.Cos(pointerAngle),
+		g.pointerFront.y - pointerPivotLocation * math.Sin(pointerAngle),
 	}
 }
 
@@ -113,16 +123,16 @@ func (g *Game) updateMenuItemSelection(cursorX int, cursorY int) {
 }
 
 func (g *Game) updateMenuItemAnimation(menuItemIndex int) {
-	menuItemAnimationEnd := g.menuItemAnimationEnds[menuItemIndex]
+	menuItem := g.menuItems[menuItemIndex]
 	animationEndFromNow := time.Now().Add(menuItemTextAnimationDuration)
-	isAnimating := !menuItemAnimationEnd.IsZero() && menuItemAnimationEnd.After(time.Now())
+	isAnimating := !menuItem.animationEnd.IsZero() && menuItem.animationEnd.After(time.Now())
 	if isAnimating {
-		elapsedAnimationDuration := animationEndFromNow.Sub(menuItemAnimationEnd)
+		elapsedAnimationDuration := animationEndFromNow.Sub(menuItem.animationEnd)
 		animationProgress := float64(elapsedAnimationDuration) / float64(menuItemTextAnimationDuration)
 		newAnimationProgress := 1 - math.Sqrt(animationProgress * (2 - animationProgress))
-		g.menuItemAnimationEnds[menuItemIndex] = time.Now().Add(time.Duration(int64((1 - newAnimationProgress) * float64(menuItemTextAnimationDuration))))
+		menuItem.animationEnd = time.Now().Add(time.Duration(int64((1 - newAnimationProgress) * float64(menuItemTextAnimationDuration))))
 	} else {
-		g.menuItemAnimationEnds[menuItemIndex] = animationEndFromNow
+		menuItem.animationEnd = animationEndFromNow
 	}
 }
 
@@ -156,7 +166,7 @@ func (g *Game) drawBackground(screen *ebiten.Image) {
 func (g *Game) drawTitle(screen *ebiten.Image) {
 	textFace := text.GoTextFace{
 		Source: g.textFaceSource,
-		Size: 42,
+		Size: titleTextSize,
 	}
 	drawGeom := ebiten.GeoM{}
 	drawGeom.Translate(float64(screen.Bounds().Dx()) / 2, 20)
@@ -184,7 +194,7 @@ func (g *Game) drawArrow(screen *ebiten.Image) {
 func (g *Game) drawMenu(screen *ebiten.Image) {
 	menuItemFonts := g.getMenuItemFonts()
 	menuItemBounds := g.getMenuItemBounds(menuItemFonts)
-	for menuItemIndex, menuItemText := range menuItems {
+	for menuItemIndex, menuItem := range g.menuItems {
 		menuItemBounds := menuItemBounds[menuItemIndex]
 		drawGeom := ebiten.GeoM{}
 		drawGeom.Translate(float64(menuItemBounds.Min.X), float64(menuItemBounds.Min.Y))
@@ -206,22 +216,22 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 				ColorScale: colorScale,
 			},
 		}
-		text.Draw(screen, menuItemText, &menuItemFonts[menuItemIndex], drawOptions)
+		text.Draw(screen, menuItem.text, &menuItemFonts[menuItemIndex], drawOptions)
 	}
 }
 
 func (g *Game) getMenuItemFonts() []text.GoTextFace {
-	menuItemFonts := make([]text.GoTextFace, len(menuItems))
-	for menuItemIndex, menuItemAnimationEnd := range g.menuItemAnimationEnds {
+	menuItemFonts := make([]text.GoTextFace, len(g.menuItems))
+	for menuItemIndex, menuItem := range g.menuItems {
 		var textZoomFactor float64
-		isAnimating := !menuItemAnimationEnd.IsZero() && menuItemAnimationEnd.After(time.Now())
+		isAnimating := !menuItem.animationEnd.IsZero() && menuItem.animationEnd.After(time.Now())
 		if isAnimating {
-			animationProgress := 1 - float64(time.Until(menuItemAnimationEnd)) / float64(menuItemTextAnimationDuration)
+			animationProgress := 1 - float64(time.Until(menuItem.animationEnd)) / float64(menuItemTextAnimationDuration)
 			textZoomFactor = -animationProgress * (animationProgress - 2)
 		} else {
 			textZoomFactor = 1
-			if !menuItemAnimationEnd.IsZero() {
-				g.menuItemAnimationEnds[menuItemIndex] = time.Time{}
+			if !menuItem.animationEnd.IsZero() {
+				menuItem.animationEnd = time.Time{}
 			}
 		}
 
@@ -240,10 +250,10 @@ func (g *Game) getMenuItemFonts() []text.GoTextFace {
 }
 
 func (g *Game) getMenuItemBounds(menuItemFonts []text.GoTextFace) []image.Rectangle {
-	menuItemsBounds := make([]image.Rectangle, len(menuItems))
+	menuItemsBounds := make([]image.Rectangle, len(g.menuItems))
 	nextMenuItemTop := 0
-	for menuItemIndex, menuItemText := range menuItems {
-		textWidth, textHeight := text.Measure(menuItemText, &menuItemFonts[menuItemIndex], 0)
+	for menuItemIndex, menuItem := range g.menuItems {
+		textWidth, textHeight := text.Measure(menuItem.text, &menuItemFonts[menuItemIndex], 0)
 		menuItemsBounds[menuItemIndex] = image.Rect((g.screenSize.x - int(textWidth)) / 2, nextMenuItemTop, (g.screenSize.x + int(textWidth)) / 2, nextMenuItemTop + int(textHeight))
 		nextMenuItemTop += int(textHeight)
 	}
@@ -271,11 +281,12 @@ var nilCoordinates = coordinatesf{x: -1, y: -1}
 
 var pointerPivotLengthRatio = float64(0.5)
 
-var menuItems = []string{
+var menuItemTexts = []string{
 	"Start game",
 	"Exit",
 }
 
+var titleTextSize = float64(42)
 var unselectedMenuItemTextSize = float64(28)
 var selectedMenuItemTextSize = float64(42)
 
