@@ -35,6 +35,8 @@ type menuItem struct {
 
 type MenuItemSelectionIndex int
 
+var MenuItemSelectionIndex_None MenuItemSelectionIndex = -1
+
 func NewMenu(menuItemTexts []string) (*Menu, error) {
 	pointerImage, _, error := ebitenutil.NewImageFromFile("../images/pointer.png")
 	if error != nil {
@@ -55,7 +57,7 @@ func NewMenu(menuItemTexts []string) (*Menu, error) {
 	return &Menu{
 		pointerFront: components.Coordinatesf{X: float64(cursorX), Y: float64(cursorY)},
 		pointerPivot: components.NilCoordinatesf,
-		selectedMenuItemIndex: -1,
+		selectedMenuItemIndex: MenuItemSelectionIndex_None,
 		menuItems: menuItems,
 
 		pointerWidth: float64(pointerImage.Bounds().Dy()),
@@ -70,7 +72,7 @@ func (m *Menu) SetScreenSize(width int, height int) {
 }
 
 func (m * Menu) Update() MenuItemSelectionIndex {
-	if (m.selectedMenuItemIndex != -1) && (ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) || ebiten.IsKeyPressed(ebiten.KeyEnter)) {
+	if (m.selectedMenuItemIndex != MenuItemSelectionIndex_None) && (ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) || ebiten.IsKeyPressed(ebiten.KeyEnter)) {
 		return m.selectedMenuItemIndex
 	}
 
@@ -122,22 +124,27 @@ func (m *Menu) updateMenuItemSelectionFromKeyPress() {
 }
 
 func (m *Menu) setMenuItemSelectionFromCursor(cursorX int, cursorY int) {
+	menuItemSelectionIndex := m.getMenuItemSelectionFromCursor(cursorX, cursorY)
+	m.setMenuItemSelection(menuItemSelectionIndex)
+}
+
+func (m *Menu) getMenuItemSelectionFromCursor(cursorX int, cursorY int) MenuItemSelectionIndex {
 	menuItemsBounds := m.getMenuItemBounds(m.getMenuItemFonts())
 	for menuItemIndex, menuItemBounds := range menuItemsBounds {
 		if (cursorX >= menuItemBounds.Min.X) && (cursorX <= menuItemBounds.Max.X) && (cursorY >= menuItemBounds.Min.Y) && (cursorY <= menuItemBounds.Max.Y) {
-			m.setMenuItemSelection(MenuItemSelectionIndex(menuItemIndex))
-			return
+			return MenuItemSelectionIndex(menuItemIndex)
 		}
 	}
+	return MenuItemSelectionIndex_None
 }
 
 func (m *Menu) setMenuItemSelection(nextSelectedMenuItemIndex MenuItemSelectionIndex) {
 	if nextSelectedMenuItemIndex != m.selectedMenuItemIndex {
-		if m.selectedMenuItemIndex != -1 {
+		if m.selectedMenuItemIndex != MenuItemSelectionIndex_None {
 			m.updateMenuItemAnimation(m.selectedMenuItemIndex)
 		}
 		m.selectedMenuItemIndex = nextSelectedMenuItemIndex
-		if m.selectedMenuItemIndex != -1 {
+		if m.selectedMenuItemIndex != MenuItemSelectionIndex_None {
 			m.updateMenuItemAnimation(m.selectedMenuItemIndex)
 		}
 	}
