@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"log"
 	"math"
+	"slices"
 	"sync"
 
 	"github.com/bhaeussermann/semitruck/components"
@@ -12,6 +13,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 type Game struct {
@@ -26,7 +28,8 @@ type Game struct {
 	menu *menu.Menu
 	exitToScene scenes.GetNextScene
 
-	truck truck
+	borders []*border
+	truck *truck
 }
 
 type truck struct {
@@ -64,7 +67,11 @@ func NewGame(exitToScene scenes.GetNextScene) (scenes.Scene, error) {
 		wheelImage: wheelImage,
 		exitToScene: exitToScene,
 		menuBackgroundScale: 1,
-		truck: truck {
+		borders: []*border{
+			createBorder([]point{{100, 450}, {400, 300}, {550, 280}, {550, 120}}, 20),
+			createBorder([]point{{250, 520}, {650, 520}}, 20),
+		},
+		truck: &truck{
 			spriteWidth: truckSpriteWidth,
 			spriteLength: truckSpriteLength,
 			width: widthRatio * truckSpriteWidth,
@@ -73,6 +80,10 @@ func NewGame(exitToScene scenes.GetNextScene) (scenes.Scene, error) {
 			frontX: 350,
 			frontY: 150,
 		},
+		screenSize: components.Coordinates{},
+		isDisplayingMenu: false,
+		initializeMenu: sync.Once{},
+		menu: &menu.Menu{},
 	}, nil
 }
 
@@ -102,8 +113,10 @@ func (g *Game) Update() scenes.SceneChange {
 			return scenes.SceneChange{}
 		}
 	}
-	
-	g.moveTruck()
+
+	g.truck.move()
+
+	g.computeCollisions()
 
 	return scenes.SceneChange{}
 }
@@ -120,45 +133,88 @@ func (g *Game) createMenu() {
 	}
 }
 
-func (g *Game) moveTruck() {
+func (t *truck) move() {
+	t.updateSpeed()
+	t.turn()
+}
+
+func (t *truck) updateSpeed() {
 	if ebiten.IsKeyPressed(ebiten.KeyArrowUp) {
-		g.truck.speed = math.Min(maximumForwardSpeed, g.truck.speed + acceleration)
+		t.speed = math.Min(maximumForwardSpeed, t.speed + acceleration)
 	} else if ebiten.IsKeyPressed(ebiten.KeyArrowDown) {
-		if g.truck.speed >= acceleration {
-			g.truck.speed *= breakFactor
+		if t.speed >= acceleration {
+			t.speed *= breakFactor
 		} else {
-			g.truck.speed = math.Max(-maximumReverseSpeed, g.truck.speed - acceleration)
+			t.speed = math.Max(-maximumReverseSpeed, t.speed - acceleration)
 		}
 	} else {
-		g.truck.speed *= frictionFactor
+		t.speed *= frictionFactor
 	}
+}
 
+func (t *truck) turn() {
 	if ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
-		g.truck.wheelTurnDirection = math.Max(-maxTurnAngle, g.truck.wheelTurnDirection - turnSpeed)
+		t.wheelTurnDirection = math.Max(-maxTurnAngle, t.wheelTurnDirection - turnSpeed)
 	} else if ebiten.IsKeyPressed(ebiten.KeyArrowRight) {
-		g.truck.wheelTurnDirection = math.Min(maxTurnAngle, g.truck.wheelTurnDirection + turnSpeed)
-	} else if math.Abs(g.truck.wheelTurnDirection) < turnSpeed {
-		g.truck.wheelTurnDirection = 0
-	} else if g.truck.wheelTurnDirection > 0 {
-		g.truck.wheelTurnDirection -= turnSpeed
+		t.wheelTurnDirection = math.Min(maxTurnAngle, t.wheelTurnDirection + turnSpeed)
+	} else if math.Abs(t.wheelTurnDirection) < turnSpeed {
+		t.wheelTurnDirection = 0
+	} else if t.wheelTurnDirection > 0 {
+		t.wheelTurnDirection -= turnSpeed
 	} else {
-		g.truck.wheelTurnDirection += turnSpeed
+		t.wheelTurnDirection += turnSpeed
 	}
 
-	if math.Abs(g.truck.speed) > epsilon {
-		rearWheelX := g.truck.frontX - g.truck.length * rearWheelLengthRatio * math.Cos(g.truck.direction)
-		rearWheelY := g.truck.frontY - g.truck.length * rearWheelLengthRatio * math.Sin(g.truck.direction)
+	if math.Abs(t.speed) > epsilon {
+		rearWheelX := t.frontX - t.length*rearWheelLengthRatio*math.Cos(t.direction)
+		rearWheelY := t.frontY - t.length*rearWheelLengthRatio*math.Sin(t.direction)
 
-		if math.Abs(g.truck.wheelTurnDirection) > epsilon  {
-			effectiveTurnAngle := math.Asin(g.truck.speed*math.Sin(g.truck.wheelTurnDirection * 2) / math.Sqrt(g.truck.speed*g.truck.speed + g.truck.wheelDistance*g.truck.wheelDistance + 2*g.truck.speed*g.truck.length*math.Cos(g.truck.wheelTurnDirection * 2)))
-			g.truck.direction += effectiveTurnAngle
+		if math.Abs(t.wheelTurnDirection) > epsilon {
+			effectiveTurnAngle := math.Asin(t.speed * math.Sin(t.wheelTurnDirection*2) / math.Sqrt(t.speed * t.speed + t.wheelDistance * t.wheelDistance + 2 * t.speed * t.length * math.Cos(t.wheelTurnDirection * 2)))
+			t.direction += effectiveTurnAngle
 		}
 
-		rearWheelX += g.truck.speed * math.Cos(g.truck.direction)
-		rearWheelY += g.truck.speed * math.Sin(g.truck.direction)
-		g.truck.frontX = rearWheelX + g.truck.length * rearWheelLengthRatio * math.Cos(g.truck.direction)
-		g.truck.frontY = rearWheelY + g.truck.length * rearWheelLengthRatio * math.Sin(g.truck.direction)
+		rearWheelX += t.speed * math.Cos(t.direction)
+		rearWheelY += t.speed * math.Sin(t.direction)
+		t.frontX = rearWheelX + t.length*rearWheelLengthRatio * math.Cos(t.direction)
+		t.frontY = rearWheelY + t.length*rearWheelLengthRatio * math.Sin(t.direction)
 	}
+}
+
+func (g *Game) computeCollisions() {
+	truck := g.truck
+
+	frontLeftX := truck.frontX + math.Sin(truck.direction) * truck.width / 2
+	frontLeftY := truck.frontY - math.Cos(truck.direction) * truck.width / 2
+	rearLeftX := frontLeftX - math.Cos(truck.direction) * truck.length
+	rearLeftY := frontLeftY - math.Sin(truck.direction) * truck.length
+	frontRightX := truck.frontX - math.Sin(truck.direction) * truck.width / 2
+	frontRightY := truck.frontY + math.Cos(truck.direction) * truck.width / 2
+	rearRightX := frontRightX - math.Cos(truck.direction) * truck.length
+	rearRightY := frontRightY - math.Sin(truck.direction) * truck.length
+
+	truckEdges := []*edgeLine {
+		createEdgeLine(frontLeftX, frontLeftY, frontRightX, frontRightY),
+		createEdgeLine(frontLeftX, frontLeftY, rearLeftX, rearLeftY),
+		createEdgeLine(frontRightX, frontRightY, rearRightX, rearRightY),
+		createEdgeLine(rearLeftX, rearLeftY, rearRightX, rearRightY),
+	}
+
+	gameEdges := g.getAllEdges()
+	for _, edge := range truckEdges {
+		if slices.ContainsFunc(gameEdges, edge.intersectsEdge) {
+			truck.speed = 0
+			return
+		}
+	}
+}
+
+func (g *Game) getAllEdges() []*edge {
+	edges := []*edge{}
+	for _, border := range g.borders {
+		edges = slices.Concat(edges, border.edges)
+	}
+	return edges
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
@@ -171,6 +227,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	colorScale.Scale(g.menuBackgroundScale, g.menuBackgroundScale, g.menuBackgroundScale, 1)
 
 	g.drawRoad(screen, colorScale)
+	for _, border := range g.borders {
+		drawBorder(screen, border, colorScale)
+	}
 	g.drawTruck(screen, colorScale)
 
 	if g.isDisplayingMenu {
@@ -196,6 +255,20 @@ func (g *Game) drawRoad(screen *ebiten.Image, colorScale ebiten.ColorScale) {
 	}
 }
 
+func drawBorder(screen *ebiten.Image, border *border, colorScale ebiten.ColorScale) {
+	path := vector.Path{}
+	startLine := border.edges[0].centerLine
+	path.MoveTo(float32(startLine.x1), float32(startLine.y1))
+	for _, borderEdge := range border.edges {
+		path.LineTo(float32(borderEdge.centerLine.x2), float32(borderEdge.centerLine.y2))
+	}
+	vector.StrokePath(
+		screen,
+		&path,
+		&vector.StrokeOptions{ Width: float32(border.width) },
+		&vector.DrawPathOptions{ AntiAlias: true, ColorScale: colorScale })
+}
+
 func (g *Game) drawTruck(screen *ebiten.Image, colorScale ebiten.ColorScale) {
 	g.drawTruckWheel(screen, -g.truck.width / 2 + float64(wheelWidth) / 2)
 	g.drawTruckWheel(screen, g.truck.width / 2 - float64(wheelWidth) / 2)
@@ -216,7 +289,6 @@ func (g *Game) drawTruckWheel(screen *ebiten.Image, offset float64) {
 	geom.Translate(g.truck.frontX, g.truck.frontY)
 	screen.DrawImage(g.wheelImage, &ebiten.DrawImageOptions{GeoM: geom})
 }
-
 
 var menuBackgroundTargetScale float32 = 0.5
 var menuBackgroundFadeSpeed float32 = 0.05
