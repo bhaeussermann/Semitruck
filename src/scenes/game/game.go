@@ -32,19 +32,6 @@ type Game struct {
 	truck *truck
 }
 
-type truck struct {
-	spriteWidth float64
-	spriteLength float64
-	width float64
-	length float64
-	wheelDistance float64
-	frontX float64
-	frontY float64
-	direction float64
-	wheelTurnDirection float64
-	speed float64
-}
-
 func NewGame(exitToScene scenes.GetNextScene) (scenes.Scene, error) {
 	roadImage, _, error := ebitenutil.NewImageFromFile("../images/road.png")
 	if error != nil {
@@ -69,7 +56,7 @@ func NewGame(exitToScene scenes.GetNextScene) (scenes.Scene, error) {
 		menuBackgroundScale: 1,
 		borders: []*border{
 			createBorder([]point{{100, 450}, {400, 300}, {550, 280}, {550, 120}}, 20),
-			createBorder([]point{{250, 520}, {650, 520}}, 20),
+			createBorder([]point{{350, 620}, {750, 620}}, 20),
 		},
 		truck: &truck{
 			spriteWidth: truckSpriteWidth,
@@ -114,7 +101,7 @@ func (g *Game) Update() scenes.SceneChange {
 		}
 	}
 
-	g.truck.move()
+	g.truck.updateMovement()
 
 	g.computeCollisions()
 
@@ -133,54 +120,6 @@ func (g *Game) createMenu() {
 	}
 }
 
-func (t *truck) move() {
-	t.updateSpeed()
-	t.turn()
-}
-
-func (t *truck) updateSpeed() {
-	if ebiten.IsKeyPressed(ebiten.KeyArrowUp) {
-		t.speed = math.Min(maximumForwardSpeed, t.speed + acceleration)
-	} else if ebiten.IsKeyPressed(ebiten.KeyArrowDown) {
-		if t.speed >= acceleration {
-			t.speed *= breakFactor
-		} else {
-			t.speed = math.Max(-maximumReverseSpeed, t.speed - acceleration)
-		}
-	} else {
-		t.speed *= frictionFactor
-	}
-}
-
-func (t *truck) turn() {
-	if ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
-		t.wheelTurnDirection = math.Max(-maxTurnAngle, t.wheelTurnDirection - turnSpeed)
-	} else if ebiten.IsKeyPressed(ebiten.KeyArrowRight) {
-		t.wheelTurnDirection = math.Min(maxTurnAngle, t.wheelTurnDirection + turnSpeed)
-	} else if math.Abs(t.wheelTurnDirection) < turnSpeed {
-		t.wheelTurnDirection = 0
-	} else if t.wheelTurnDirection > 0 {
-		t.wheelTurnDirection -= turnSpeed
-	} else {
-		t.wheelTurnDirection += turnSpeed
-	}
-
-	if math.Abs(t.speed) > epsilon {
-		rearWheelX := t.frontX - t.length*rearWheelLengthRatio*math.Cos(t.direction)
-		rearWheelY := t.frontY - t.length*rearWheelLengthRatio*math.Sin(t.direction)
-
-		if math.Abs(t.wheelTurnDirection) > epsilon {
-			effectiveTurnAngle := math.Asin(t.speed * math.Sin(t.wheelTurnDirection*2) / math.Sqrt(t.speed * t.speed + t.wheelDistance * t.wheelDistance + 2 * t.speed * t.length * math.Cos(t.wheelTurnDirection * 2)))
-			t.direction += effectiveTurnAngle
-		}
-
-		rearWheelX += t.speed * math.Cos(t.direction)
-		rearWheelY += t.speed * math.Sin(t.direction)
-		t.frontX = rearWheelX + t.length*rearWheelLengthRatio * math.Cos(t.direction)
-		t.frontY = rearWheelY + t.length*rearWheelLengthRatio * math.Sin(t.direction)
-	}
-}
-
 func (g *Game) computeCollisions() {
 	truck := g.truck
 
@@ -193,18 +132,19 @@ func (g *Game) computeCollisions() {
 	rearRightX := frontRightX - math.Cos(truck.direction) * truck.length
 	rearRightY := frontRightY - math.Sin(truck.direction) * truck.length
 
-	truckEdges := []*edgeLine {
+	truckEdges := []*edgeLine{
 		createEdgeLine(frontLeftX, frontLeftY, frontRightX, frontRightY),
+		createEdgeLine(rearLeftX, rearLeftY, rearRightX, rearRightY),
 		createEdgeLine(frontLeftX, frontLeftY, rearLeftX, rearLeftY),
 		createEdgeLine(frontRightX, frontRightY, rearRightX, rearRightY),
-		createEdgeLine(rearLeftX, rearLeftY, rearRightX, rearRightY),
 	}
 
-	gameEdges := g.getAllEdges()
-	for _, edge := range truckEdges {
-		if slices.ContainsFunc(gameEdges, edge.intersectsEdge) {
-			truck.speed = 0
-			return
+	for _, courseEdge := range g.getAllEdges() {
+		for _, truckEdge := range truckEdges {
+			if truckEdge.intersectsEdge(courseEdge) {
+				truck.bump(truckEdge, courseEdge)
+				return
+			}
 		}
 	}
 }
@@ -219,9 +159,9 @@ func (g *Game) getAllEdges() []*edge {
 
 func (g *Game) Draw(screen *ebiten.Image) {
 	if g.isDisplayingMenu {
-		g.menuBackgroundScale = MaxF32(menuBackgroundTargetScale, g.menuBackgroundScale - menuBackgroundFadeSpeed)
+		g.menuBackgroundScale = MaxF32(menuBackgroundTargetScale, g.menuBackgroundScale-menuBackgroundFadeSpeed)
 	} else {
-		g.menuBackgroundScale = MinF32(1, g.menuBackgroundScale + menuBackgroundFadeSpeed)
+		g.menuBackgroundScale = MinF32(1, g.menuBackgroundScale+menuBackgroundFadeSpeed)
 	}
 	colorScale := ebiten.ColorScale{}
 	colorScale.Scale(g.menuBackgroundScale, g.menuBackgroundScale, g.menuBackgroundScale, 1)
@@ -238,11 +178,19 @@ func (g *Game) Draw(screen *ebiten.Image) {
 }
 
 func MaxF32(x float32, y float32) float32 {
-	if x >= y { return x } else { return y }
+	if x >= y {
+		return x
+	} else {
+		return y
+	}
 }
 
 func MinF32(x float32, y float32) float32 {
-	if x <= y { return x } else { return y }
+	if x <= y {
+		return x
+	} else {
+		return y
+	}
 }
 
 func (g *Game) drawRoad(screen *ebiten.Image, colorScale ebiten.ColorScale) {
@@ -265,8 +213,8 @@ func drawBorder(screen *ebiten.Image, border *border, colorScale ebiten.ColorSca
 	vector.StrokePath(
 		screen,
 		&path,
-		&vector.StrokeOptions{ Width: float32(border.width) },
-		&vector.DrawPathOptions{ AntiAlias: true, ColorScale: colorScale })
+		&vector.StrokeOptions{Width: float32(border.width)},
+		&vector.DrawPathOptions{AntiAlias: true, ColorScale: colorScale})
 }
 
 func (g *Game) drawTruck(screen *ebiten.Image, colorScale ebiten.ColorScale) {
@@ -293,14 +241,6 @@ func (g *Game) drawTruckWheel(screen *ebiten.Image, offset float64) {
 var menuBackgroundTargetScale float32 = 0.5
 var menuBackgroundFadeSpeed float32 = 0.05
 
-var acceleration = 0.03
-var frictionFactor = 0.95
-var breakFactor = 0.9
-var maximumForwardSpeed = 3.0
-var maximumReverseSpeed = 1.5
-var maxTurnAngle = math.Pi / 4
-var turnSpeed = maxTurnAngle / 10
-
 var widthRatio = 0.775
 var frontRatio = 0.01
 var rearRatio = 0.98
@@ -308,5 +248,3 @@ var frontWheelLengthRatio = 0.15
 var rearWheelLengthRatio = 0.85
 var wheelLength = 30
 var wheelWidth = 12
-
-var epsilon = 0.00001
