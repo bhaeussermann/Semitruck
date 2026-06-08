@@ -19,32 +19,34 @@ func (e *edge) getEdgeLines() []*edgeLine {
 	y1 := e.centerLine.y1
 	x2 := e.centerLine.x2
 	y2 := e.centerLine.y2
-	perpendicularAngle := math.Atan2(x1 - x2, y2 - y1)
-	dx := math.Cos(perpendicularAngle) * e.width / 2
-	dy := math.Sin(perpendicularAngle) * e.width / 2
+	perpendicularDirection := math.Atan2(x1 - x2, y2 - y1)
+	dx := math.Cos(perpendicularDirection) * e.width / 2
+	dy := math.Sin(perpendicularDirection) * e.width / 2
 
 	return []*edgeLine {
-		createEdgeLine(x1 - dx, y1 - dy, x2 - dx, y2 - dy),
-		createEdgeLine(x1 + dx, y1 + dy, x2 + dx, y2 + dy),
+		createEdgeLine(x1 - dx, y1 - dy, x2 - dx, y2 - dy, perpendicularDirection + math.Pi),
+		createEdgeLine(x1 + dx, y1 + dy, x2 + dx, y2 + dy, perpendicularDirection),
 	}
 }
 
 func (e *edge) getStartEdgeLine() *edgeLine {
-	perpendicularAngle := math.Atan2(e.centerLine.x1 - e.centerLine.x2, e.centerLine.y2 - e.centerLine.y1)
-	dx := math.Cos(perpendicularAngle) * e.width / 2
-	dy := math.Sin(perpendicularAngle) * e.width / 2
+	perpendicularDirection := math.Atan2(e.centerLine.x1 - e.centerLine.x2, e.centerLine.y2 - e.centerLine.y1)
+	dx := math.Cos(perpendicularDirection) * e.width / 2
+	dy := math.Sin(perpendicularDirection) * e.width / 2
 	x1 := e.centerLine.x1
 	y1 := e.centerLine.y1
-	return createEdgeLine(x1 - dx, y1 - dy, x1 + dx, y1 + dy)
+	frontDirection := math.Atan2(e.centerLine.y1 - e.centerLine.y2, e.centerLine.x1 - e.centerLine.x2)
+	return createEdgeLine(x1 - dx, y1 - dy, x1 + dx, y1 + dy, frontDirection)
 }
 
 func (e *edge) getEndEdgeLine() *edgeLine {
-	perpendicularAngle := math.Atan2(e.centerLine.x1 - e.centerLine.x2, e.centerLine.y2 - e.centerLine.y1)
-	dx := math.Cos(perpendicularAngle) * e.width / 2
-	dy := math.Sin(perpendicularAngle) * e.width / 2
+	perpendicularDirection := math.Atan2(e.centerLine.x1 - e.centerLine.x2, e.centerLine.y2 - e.centerLine.y1)
+	dx := math.Cos(perpendicularDirection) * e.width / 2
+	dy := math.Sin(perpendicularDirection) * e.width / 2
 	x2 := e.centerLine.x2
 	y2 := e.centerLine.y2
-	return createEdgeLine(x2 - dx, y2 - dy, x2 + dx, y2 + dy)
+	frontDirection := math.Atan2(e.centerLine.y2 - e.centerLine.y1, e.centerLine.x2 - e.centerLine.x1)
+	return createEdgeLine(x2 - dx, y2 - dy, x2 + dx, y2 + dy, frontDirection)
 }
 
 type strokeLine struct {
@@ -54,9 +56,14 @@ type strokeLine struct {
 type edgeLine struct {
 	m, c float64
 	lowX, highX float64
+	frontDirection float64
 }
 
-func createEdgeLine(x1 float64, y1 float64, x2 float64, y2 float64) *edgeLine {
+func createEdgeLine(x1 float64, y1 float64, x2 float64, y2 float64, frontDirection float64) *edgeLine {
+	if frontDirection > math.Pi {
+		frontDirection -= 2 * math.Pi
+	}
+
 	if x1 == x2 {
 		if y1 > y2 {
 			swap(&y1, &y2)
@@ -66,6 +73,7 @@ func createEdgeLine(x1 float64, y1 float64, x2 float64, y2 float64) *edgeLine {
 			c: x1,
 			lowX: y1,
 			highX: y2,
+			frontDirection: frontDirection,
 		}
 	}
 
@@ -80,6 +88,7 @@ func createEdgeLine(x1 float64, y1 float64, x2 float64, y2 float64) *edgeLine {
 		c: y1 - m * x1,
 		lowX: x1,
 		highX: x2,
+		frontDirection: frontDirection,
 	}
 }
 
@@ -140,6 +149,18 @@ func (l1 *edgeLine) getIntersectPoint(l2 *edgeLine) point {
 	}
 	x := (l2.c - l1.c) / (l1.m - l2.m)
 	return point {x, l1.getY(x)}
+}
+
+func (l *edgeLine) isInFront(x float64, y float64) bool {
+	if l.isVertical() {
+		isPointLeft := x < l.c
+		isLineFacingLeft := math.Abs(l.frontDirection) > math.Pi / 2
+		return isPointLeft == isLineFacingLeft
+	}
+
+	isPointUp := y < l.getY(x)
+	isLineFacingUp := l.frontDirection < 0
+	return isPointUp == isLineFacingUp
 }
 
 func (l *edgeLine) arePointsOnSameSide(x1 float64, y1 float64, x2 float64, y2 float64) bool {

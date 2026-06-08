@@ -101,36 +101,26 @@ func (t *truck) bump(truckEdge *edgeLine, courseEdgeLine *edgeLine) {
 	truckVelocityY := t.speed * math.Sin(t.direction) + t.bumpVelocityY
 	truckSpeed := math.Sqrt(truckVelocityX*truckVelocityX + truckVelocityY*truckVelocityY)
 	truckMovementDirection := math.Atan2(truckVelocityY, truckVelocityX)
-	if truckMovementDirection < 0 {
-		truckMovementDirection += 2 * math.Pi
-	}
 
 	courseEdgeLineDirection := courseEdgeLine.getDirection()
 	opposingForceMagnitude := bumpForceCoefficient * truckSpeed * math.Abs(math.Sin(courseEdgeLineDirection - truckMovementDirection))
-	var opposingForceDirection float64
-	if courseEdgeLineDirection < truckMovementDirection && truckMovementDirection <= courseEdgeLineDirection + math.Pi {
-		opposingForceDirection = courseEdgeLineDirection - math.Pi / 2
-	} else {
-		opposingForceDirection = courseEdgeLineDirection + math.Pi / 2
-	}
 
-	t.bumpVelocityX = truckVelocityX + opposingForceMagnitude * math.Cos(opposingForceDirection)
-	t.bumpVelocityY = truckVelocityY + opposingForceMagnitude * math.Sin(opposingForceDirection)
+	t.bumpVelocityX = truckVelocityX + opposingForceMagnitude * math.Cos(courseEdgeLine.frontDirection)
+	t.bumpVelocityY = truckVelocityY + opposingForceMagnitude * math.Sin(courseEdgeLine.frontDirection)
 	t.speed = 0
 
 	t.pushBack(truckEdge, courseEdgeLine)
 }
 
 func (t *truck) pushBack(truckEdge *edgeLine, courseEdgeLine *edgeLine) {
-	centerX, centerY := t.getCenter()
 	truckEdgeEndpoints := truckEdge.getStrokeLine()
 
 	var oppositeX float64
 	var oppositeY float64
-	if !courseEdgeLine.arePointsOnSameSide(centerX, centerY, truckEdgeEndpoints.x1, truckEdgeEndpoints.y1) {
+	if !courseEdgeLine.isInFront(truckEdgeEndpoints.x1, truckEdgeEndpoints.y1) {
 		oppositeX = truckEdgeEndpoints.x1
 		oppositeY = truckEdgeEndpoints.y1
-	} else if !courseEdgeLine.arePointsOnSameSide(centerX, centerY, truckEdgeEndpoints.x2, truckEdgeEndpoints.y2) {
+	} else if !courseEdgeLine.isInFront(truckEdgeEndpoints.x2, truckEdgeEndpoints.y2) {
 		oppositeX = truckEdgeEndpoints.x2
 		oppositeY = truckEdgeEndpoints.y2
 	} else {

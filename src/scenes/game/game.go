@@ -147,10 +147,10 @@ func (g *Game) computeCollisions() {
 	rearRightY := frontRightY - math.Sin(truck.direction) * truck.length
 
 	truckEdges := []*edgeLine{
-		createEdgeLine(frontLeftX, frontLeftY, frontRightX, frontRightY),
-		createEdgeLine(rearLeftX, rearLeftY, rearRightX, rearRightY),
-		createEdgeLine(frontLeftX, frontLeftY, rearLeftX, rearLeftY),
-		createEdgeLine(frontRightX, frontRightY, rearRightX, rearRightY),
+		createEdgeLine(frontLeftX, frontLeftY, frontRightX, frontRightY, 0),
+		createEdgeLine(rearLeftX, rearLeftY, rearRightX, rearRightY, 0),
+		createEdgeLine(frontLeftX, frontLeftY, rearLeftX, rearLeftY, 0),
+		createEdgeLine(frontRightX, frontRightY, rearRightX, rearRightY, 0),
 	}
 
 	truckCenterX, truckCenterY := truck.getCenter()
