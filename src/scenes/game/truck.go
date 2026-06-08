@@ -96,7 +96,7 @@ func (t *truck) propel() {
 	t.frontY = rearWheelY + t.length * rearWheelLengthRatio * math.Sin(t.direction)
 }
 
-func (t *truck) bump(truckEdge *edgeLine, courseEdge *edge) {
+func (t *truck) bump(truckEdge *edgeLine, courseEdgeLine *edgeLine) {
 	truckVelocityX := t.speed * math.Cos(t.direction) + t.bumpVelocityX
 	truckVelocityY := t.speed * math.Sin(t.direction) + t.bumpVelocityY
 	truckSpeed := math.Sqrt(truckVelocityX*truckVelocityX + truckVelocityY*truckVelocityY)
@@ -105,46 +105,60 @@ func (t *truck) bump(truckEdge *edgeLine, courseEdge *edge) {
 		truckMovementDirection += 2 * math.Pi
 	}
 
-	courseEdgeDirection := courseEdge.centerLine.getDirection()
-	opposingForceMagnitude := bumpForceCoefficient * truckSpeed * math.Abs(math.Sin(courseEdgeDirection - truckMovementDirection))
+	courseEdgeLineDirection := courseEdgeLine.getDirection()
+	opposingForceMagnitude := bumpForceCoefficient * truckSpeed * math.Abs(math.Sin(courseEdgeLineDirection - truckMovementDirection))
 	var opposingForceDirection float64
-	if courseEdgeDirection < truckMovementDirection && truckMovementDirection <= courseEdgeDirection + math.Pi {
-		opposingForceDirection = courseEdgeDirection - math.Pi / 2
+	if courseEdgeLineDirection < truckMovementDirection && truckMovementDirection <= courseEdgeLineDirection + math.Pi {
+		opposingForceDirection = courseEdgeLineDirection - math.Pi / 2
 	} else {
-		opposingForceDirection = courseEdgeDirection + math.Pi / 2
+		opposingForceDirection = courseEdgeLineDirection + math.Pi / 2
 	}
 
 	t.bumpVelocityX = truckVelocityX + opposingForceMagnitude * math.Cos(opposingForceDirection)
 	t.bumpVelocityY = truckVelocityY + opposingForceMagnitude * math.Sin(opposingForceDirection)
 	t.speed = 0
 
-	t.pushBack(truckEdge, courseEdge)
+	t.pushBack(truckEdge, courseEdgeLine)
 }
 
-func (t *truck) pushBack(truckEdge *edgeLine, courseEdge *edge) {
+func (t *truck) pushBack(truckEdge *edgeLine, courseEdgeLine *edgeLine) {
 	centerX, centerY := t.getCenter()
-	courseLine := courseEdge.getClosestLine(centerX, centerY)
 	truckEdgeEndpoints := truckEdge.getStrokeLine()
 
 	var oppositeX float64
 	var oppositeY float64
-	if !courseLine.arePointsOnSameSide(centerX, centerY, truckEdgeEndpoints.x1, truckEdgeEndpoints.y1) {
+	if !courseEdgeLine.arePointsOnSameSide(centerX, centerY, truckEdgeEndpoints.x1, truckEdgeEndpoints.y1) {
 		oppositeX = truckEdgeEndpoints.x1
 		oppositeY = truckEdgeEndpoints.y1
-	} else if !courseLine.arePointsOnSameSide(centerX, centerY, truckEdgeEndpoints.x2, truckEdgeEndpoints.y2) {
+	} else if !courseEdgeLine.arePointsOnSameSide(centerX, centerY, truckEdgeEndpoints.x2, truckEdgeEndpoints.y2) {
 		oppositeX = truckEdgeEndpoints.x2
 		oppositeY = truckEdgeEndpoints.y2
 	} else {
 		return
 	}
 
-	if courseLine.isVertical() {
-		t.frontX -= oppositeX - courseLine.c
+	if courseEdgeLine.isVertical() {
+		if truckEdge.isHorizontal() { return }
+		if oppositeY < courseEdgeLine.lowX {
+			oppositeX = truckEdge.getX(courseEdgeLine.lowX)
+		} else if oppositeY > courseEdgeLine.highX {
+			oppositeX = truckEdge.getX(courseEdgeLine.highX)
+		}
+		t.frontX -= oppositeX - courseEdgeLine.c
 		return
 	}
 
-	courseLineIntersectX := ((oppositeY - courseLine.c) * courseLine.m + oppositeX) / (courseLine.m * courseLine.m + 1)
-	courseLineIntersectY := courseLine.getY(courseLineIntersectX)
+	courseLineIntersectX, courseLineIntersectY, lineSection := courseEdgeLine.getClosestPoint(oppositeX, oppositeY)
+	shouldRecomputeOppositePoint := lineSection != lineSection_Middle
+	if shouldRecomputeOppositePoint {
+		if truckEdge.isVertical() {
+			oppositeY = (courseLineIntersectX - oppositeX) / courseEdgeLine.m + courseLineIntersectY
+		} else {
+			oppositeX = (courseLineIntersectX + (courseLineIntersectY - truckEdge.c) * courseEdgeLine.m) / (courseEdgeLine.m * truckEdge.m + 1)
+			oppositeY = truckEdge.getY(oppositeX)
+		}
+	}
+
 	pushDistance := math.Sqrt(sqr(courseLineIntersectY - oppositeY) + sqr(courseLineIntersectX - oppositeX))
 	pushAngle := math.Atan2(courseLineIntersectY - oppositeY, courseLineIntersectX - oppositeX)
 	t.frontX += pushDistance * math.Cos(pushAngle)
@@ -160,7 +174,7 @@ func (t *truck) getCenter() (x float64, y float64) {
 var acceleration = 0.03
 var frictionFactor = 0.95
 var breakFactor = 0.9
-var bumpForceCoefficient = 1.5
+var bumpForceCoefficient = 2.0
 var bumpFrictionFactor = 0.95
 var maximumForwardSpeed = 4.0
 var maximumReverseSpeed = 1.5

@@ -28,7 +28,8 @@ type Game struct {
 	menu *menu.Menu
 	exitToScene scenes.GetNextScene
 
-	borders []*border
+	courseBorders []*border
+	courseEdgeLines []*edgeLine
 	truck *truck
 }
 
@@ -48,16 +49,18 @@ func NewGame(exitToScene scenes.GetNextScene) (scenes.Scene, error) {
 	wheelImage := ebiten.NewImage(wheelLength, wheelWidth)
 	wheelImage.Fill(color.Black)
 
+	courseBorders := []*border{
+		createBorder([]point{{100, 450}, {400, 300}, {550, 280}, {550, 120}}, 20),
+		createBorder([]point{{350, 620}, {750, 620}}, 20),
+	}
 	return &Game{
 		roadImage: roadImage,
 		truckImage: truckImage,
 		wheelImage: wheelImage,
 		exitToScene: exitToScene,
 		menuBackgroundScale: 1,
-		borders: []*border{
-			createBorder([]point{{100, 450}, {400, 300}, {550, 280}, {550, 120}}, 20),
-			createBorder([]point{{350, 620}, {750, 620}}, 20),
-		},
+		courseBorders: courseBorders,
+		courseEdgeLines: getAllEdgeLines(courseBorders),
 		truck: &truck{
 			spriteWidth: truckSpriteWidth,
 			spriteLength: truckSpriteLength,
@@ -72,6 +75,17 @@ func NewGame(exitToScene scenes.GetNextScene) (scenes.Scene, error) {
 		initializeMenu: sync.Once{},
 		menu: &menu.Menu{},
 	}, nil
+}
+
+func getAllEdgeLines(borders []*border) []*edgeLine {
+	edgeLines := []*edgeLine{}
+	for _, border := range borders {
+		edgeLines = append(edgeLines, border.edges[0].getStartEdgeLine(), border.edges[len(border.edges) - 1].getEndEdgeLine())
+		for _, edge := range border.edges {
+			edgeLines = slices.Concat(edgeLines, edge.getEdgeLines())
+		}
+	}
+	return edgeLines
 }
 
 func (g *Game) SetScreenSize(width int, height int) {
@@ -139,22 +153,100 @@ func (g *Game) computeCollisions() {
 		createEdgeLine(frontRightX, frontRightY, rearRightX, rearRightY),
 	}
 
-	for _, courseEdge := range g.getAllEdges() {
-		for _, truckEdge := range truckEdges {
-			if truckEdge.intersectsEdge(courseEdge) {
-				truck.bump(truckEdge, courseEdge)
+	truckCenterX, truckCenterY := truck.getCenter()
+	for _, truckEdge := range truckEdges {
+		for _, courseEdgeLine := range g.courseEdgeLines {
+			if truckEdgeSkipsOverEdgeLine(truckCenterX, truckCenterY, truckEdge, courseEdgeLine, g.courseEdgeLines) {
+				truck.bump(truckEdge, courseEdgeLine)
 				return
 			}
 		}
 	}
+
+	intersectingLinePairs := []*intersectingLinePair{}
+	for _, truckEdge := range truckEdges {
+		for _, courseEdgeLine := range g.courseEdgeLines {
+			if truckEdge.intersectsLine(courseEdgeLine) {
+				intersectingLinePairs = append(intersectingLinePairs, &intersectingLinePair{truckEdge, courseEdgeLine})
+			}
+		}
+	}
+	if len(intersectingLinePairs) != 0 {
+		truckEdge, edgeLine := getDeepestIntersectingTruckEdgeAndEdgeLine(intersectingLinePairs)
+		truck.bump(truckEdge, edgeLine)
+	}
 }
 
-func (g *Game) getAllEdges() []*edge {
-	edges := []*edge{}
-	for _, border := range g.borders {
-		edges = slices.Concat(edges, border.edges)
+func truckEdgeSkipsOverEdgeLine(truckCenterX float64, truckCenterY float64, truckEdgeLine *edgeLine, edgeLine *edgeLine, allEdgeLines []*edgeLine) bool {
+	truckStrokeLine := truckEdgeLine.getStrokeLine()
+	isPoint1OnSameSide := edgeLine.arePointsOnSameSide(truckCenterX, truckCenterY, truckStrokeLine.x1, truckStrokeLine.y1)
+	isPoint2OnSameSide := edgeLine.arePointsOnSameSide(truckCenterX, truckCenterY, truckStrokeLine.x2, truckStrokeLine.y2)
+
+	if isPoint1OnSameSide || isPoint2OnSameSide { return false }
+
+	_, _, point1ClosestPointOnEdgeLine := edgeLine.getClosestPoint(truckStrokeLine.x1, truckStrokeLine.y1)
+	_, _, point2ClosestPointOnEdgeLine := edgeLine.getClosestPoint(truckStrokeLine.x2, truckStrokeLine.y2)
+
+	skipsOverEdgeLine := (point1ClosestPointOnEdgeLine != lineSection_Middle) && (point2ClosestPointOnEdgeLine != lineSection_Middle) && (point1ClosestPointOnEdgeLine != point2ClosestPointOnEdgeLine)
+	if !skipsOverEdgeLine { return false }
+
+	for _, otherEdgeLine := range allEdgeLines {
+		if (otherEdgeLine != edgeLine) && (truckEdgeLine.intersectsLine(otherEdgeLine)) {
+			return true
+		}
 	}
-	return edges
+
+	return false
+}
+
+func getDeepestIntersectingTruckEdgeAndEdgeLine(intersectingLinePairs []*intersectingLinePair) (*edgeLine, *edgeLine) {
+	if len(intersectingLinePairs) == 1 {
+		return intersectingLinePairs[0].truckEdge, intersectingLinePairs[0].edgeLine
+	}
+	edgeLineEnds := []point {}
+	for _, intersectingLinePair := range intersectingLinePairs {
+		strokeLine := intersectingLinePair.edgeLine.getStrokeLine()
+		edgeLineEnds = append(edgeLineEnds, point{strokeLine.x1, strokeLine.y1}, point{strokeLine.x2, strokeLine.y2})
+	}
+	for _, edgeLineEnd := range edgeLineEnds {
+		linePairsWithCommonPoint := getLinePairsWithCommonPoint(intersectingLinePairs, edgeLineEnd)
+		if len(linePairsWithCommonPoint) > 1 {
+			var maximumIntersectDepth float64 = 0
+			var maximumInterceptEdgeLine *edgeLine = nil
+			for _, linePair := range linePairsWithCommonPoint {
+				intersectPoint := linePair.edgeLine.getIntersectPoint(linePair.truckEdge)
+				intersectDepth := sqr(intersectPoint.y - edgeLineEnd.y) + sqr(intersectPoint.x - edgeLineEnd.x)
+				if intersectDepth > maximumIntersectDepth {
+					maximumIntersectDepth = intersectDepth
+					maximumInterceptEdgeLine = linePair.edgeLine
+				}
+			}
+			oppositeTruckEdge := intersectingLinePairs[0].truckEdge
+			for _, intersectingLinePair := range intersectingLinePairs {
+				if intersectingLinePair.edgeLine != maximumInterceptEdgeLine {
+					oppositeTruckEdge = intersectingLinePair.truckEdge
+				}
+			}
+			return oppositeTruckEdge, maximumInterceptEdgeLine
+		}
+	}
+	return intersectingLinePairs[0].truckEdge, intersectingLinePairs[0].edgeLine
+}
+
+func getLinePairsWithCommonPoint(intersectingLinesPairs []*intersectingLinePair, point point) []*intersectingLinePair {
+	linePairsWithCommonPoint := []*intersectingLinePair {}
+	for _, intersectingLinesPair := range intersectingLinesPairs {
+		strokeLine := intersectingLinesPair.edgeLine.getStrokeLine()
+		if (strokeLine.x1 == point.x && strokeLine.y1 == point.y) || (strokeLine.x2 == point.x && strokeLine.y2 == point.y) {
+			linePairsWithCommonPoint = append(linePairsWithCommonPoint, intersectingLinesPair)
+		}
+	}
+	return linePairsWithCommonPoint
+}
+
+type intersectingLinePair struct {
+	truckEdge *edgeLine
+	edgeLine *edgeLine
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
@@ -167,7 +259,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	colorScale.Scale(g.menuBackgroundScale, g.menuBackgroundScale, g.menuBackgroundScale, 1)
 
 	g.drawRoad(screen, colorScale)
-	for _, border := range g.borders {
+	for _, border := range g.courseBorders {
 		drawBorder(screen, border, colorScale)
 	}
 	g.drawTruck(screen, colorScale)
