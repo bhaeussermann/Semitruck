@@ -4,6 +4,7 @@ import (
 	"bytes"
 	_ "image/jpeg"
 	"math"
+	"runtime"
 
 	"github.com/bhaeussermann/semitruck/components/menu"
 	"github.com/bhaeussermann/semitruck/scenes"
@@ -31,7 +32,7 @@ func NewGameMenu() (scenes.Scene, error) {
 		return nil, error
 	}
 
-	menu, error := menu.NewMenu(menuItemTexts)
+	menu, error := menu.NewMenu(getMenuItemTexts())
 	if error != nil {
 		return nil, error
 	}
@@ -97,9 +98,16 @@ func (m *GameMenu) drawTitle(screen *ebiten.Image) {
 	text.Draw(screen, "Semitruck", &textFace, drawOptions)
 }
 
-var menuItemTexts = []string{
-	"Start game",
-	"Exit",
+func getMenuItemTexts() []string {
+	var menuItemTexts = []string{ "Start game", }
+	if !isRunningInBrowser() {
+		menuItemTexts = append(menuItemTexts, "Exit")
+	}
+	return menuItemTexts
+}
+
+func isRunningInBrowser() bool {
+	return runtime.GOOS == "js"
 }
 
 var titleTextSize = float64(42)
