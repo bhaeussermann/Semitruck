@@ -251,16 +251,21 @@ type intersectingLinePair struct {
 
 func (g *Game) Draw(screen *ebiten.Image) {
 	if g.isDisplayingMenu {
-		g.menuBackgroundScale = MaxF32(menuBackgroundTargetScale, g.menuBackgroundScale-menuBackgroundFadeSpeed)
+		g.menuBackgroundScale = MaxF32(menuBackgroundTargetScale, g.menuBackgroundScale - menuBackgroundFadeSpeed)
 	} else {
-		g.menuBackgroundScale = MinF32(1, g.menuBackgroundScale+menuBackgroundFadeSpeed)
+		g.menuBackgroundScale = MinF32(1, g.menuBackgroundScale + menuBackgroundFadeSpeed)
 	}
 	colorScale := ebiten.ColorScale{}
 	colorScale.Scale(g.menuBackgroundScale, g.menuBackgroundScale, g.menuBackgroundScale, 1)
 
+	edgeStripeColorScale := ebiten.ColorScale{}
+	edgeStripeColorScale.SetG(0)
+	edgeStripeColorScale.SetB(0)
+	edgeStripeColorScale.Scale(g.menuBackgroundScale, g.menuBackgroundScale, g.menuBackgroundScale, 1)
+
 	g.drawRoad(screen, colorScale)
 	for _, border := range g.courseBorders {
-		drawBorder(screen, border, colorScale)
+		drawBorder(screen, border, colorScale, edgeStripeColorScale)
 	}
 	g.drawTruck(screen, colorScale)
 
@@ -295,7 +300,7 @@ func (g *Game) drawRoad(screen *ebiten.Image, colorScale ebiten.ColorScale) {
 	}
 }
 
-func drawBorder(screen *ebiten.Image, border *border, colorScale ebiten.ColorScale) {
+func drawBorder(screen *ebiten.Image, border *border, colorScale ebiten.ColorScale, edgeStripeColorScale ebiten.ColorScale) {
 	path := vector.Path{}
 	startLine := border.edges[0].centerLine
 	path.MoveTo(float32(startLine.x1), float32(startLine.y1))
@@ -306,6 +311,34 @@ func drawBorder(screen *ebiten.Image, border *border, colorScale ebiten.ColorSca
 		screen,
 		&path,
 		&vector.StrokeOptions{Width: float32(border.width)},
+		&vector.DrawPathOptions{AntiAlias: true, ColorScale: colorScale})
+	
+	drawEdgeStripes(screen, border, edgeStripeColorScale)
+}
+
+func drawEdgeStripes(screen *ebiten.Image, border *border, colorScale ebiten.ColorScale) {
+	path := vector.Path{}
+	edgeStripePoint := float64(edgeStripeGap + edgeStripeWidth / 2)
+	for _, edge := range border.edges {
+		centerLine := edge.centerLine
+		edgeLength := math.Sqrt(sqr(centerLine.y2 - centerLine.y1) + sqr(centerLine.x2 - centerLine.x1))
+		edgeAngle := math.Atan2(centerLine.y2 - centerLine.y1, centerLine.x2 - centerLine.x1)
+		stripeEndOffsetX := -edge.width / 2 * math.Sin(edgeAngle)
+		stripeEndOffsetY := edge.width / 2 * math.Cos(edgeAngle)
+
+		for ; edgeStripePoint < edgeLength - edgeStripeWidth / 2; edgeStripePoint += edgeStripeWidth + edgeStripeGap {
+			stripeMidpointX := ((edgeLength - edgeStripePoint) * centerLine.x1 + edgeStripePoint * centerLine.x2) / edgeLength
+			stripeMidpointY := ((edgeLength - edgeStripePoint) * centerLine.y1 + edgeStripePoint * centerLine.y2) / edgeLength
+			path.MoveTo(float32(stripeMidpointX - stripeEndOffsetX), float32(stripeMidpointY - stripeEndOffsetY))
+			path.LineTo(float32(stripeMidpointX + stripeEndOffsetX), float32(stripeMidpointY + stripeEndOffsetY))
+		}
+		edgeStripePoint = math.Max(edgeStripePoint - edgeLength, edgeStripeWidth)
+	}
+
+	vector.StrokePath(
+		screen,
+		&path,
+		&vector.StrokeOptions{Width: float32(edgeStripeWidth)},
 		&vector.DrawPathOptions{AntiAlias: true, ColorScale: colorScale})
 }
 
@@ -332,6 +365,9 @@ func (g *Game) drawTruckWheel(screen *ebiten.Image, offset float64) {
 
 var menuBackgroundTargetScale float32 = 0.5
 var menuBackgroundFadeSpeed float32 = 0.05
+
+var edgeStripeWidth = 15.0
+var edgeStripeGap = 20.0
 
 var widthRatio = 0.775
 var frontRatio = 0.01
