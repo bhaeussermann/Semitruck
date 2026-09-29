@@ -27,6 +27,7 @@ type Game struct {
 	menuBackgroundScale float32
 	menu *menu.Menu
 	exitToScene scenes.GetNextScene
+	viewTopLeft components.Coordinatesf
 
 	courseBorders []*border
 	courseEdgeLines []*edgeLine
@@ -50,6 +51,7 @@ func NewGame(exitToScene scenes.GetNextScene) (scenes.Scene, error) {
 	wheelImage.Fill(color.Black)
 
 	courseBorders := []*border{
+		createBorder([]point{{courseSize.X - 10, courseSize.Y - 10}, {10, courseSize.Y - 10}, {10, 10}, {courseSize.X - 10, 10}, {courseSize.X - 10, courseSize.Y - 10}}, 20),
 		createBorder([]point{{100, 450}, {400, 300}, {550, 280}, {550, 120}}, 20),
 		createBorder([]point{{350, 620}, {750, 620}}, 20),
 	}
@@ -59,6 +61,7 @@ func NewGame(exitToScene scenes.GetNextScene) (scenes.Scene, error) {
 		wheelImage: wheelImage,
 		exitToScene: exitToScene,
 		menuBackgroundScale: 1,
+		viewTopLeft: components.Coordinatesf{},
 		courseBorders: courseBorders,
 		courseEdgeLines: getAllEdgeLines(courseBorders),
 		truck: &truck{
@@ -118,6 +121,8 @@ func (g *Game) Update() scenes.SceneChange {
 	g.truck.updateMovement()
 
 	g.computeCollisions()
+
+	g.updateViewLocation()
 
 	return scenes.SceneChange{}
 }
@@ -249,6 +254,20 @@ type intersectingLinePair struct {
 	edgeLine *edgeLine
 }
 
+func (g *Game) updateViewLocation() {
+	truckCenterX, truckCenterY := g.truck.getCenter()
+	g.viewTopLeft = components.Coordinatesf {
+		X: math.Min(
+			math.Max(truckCenterX - float64(g.screenSize.X) / 2, 0),
+			courseSize.X - float64(g.screenSize.X),
+		),
+		Y: math.Min(
+			math.Max(truckCenterY - float64(g.screenSize.Y) / 2, 0),
+			courseSize.Y - float64(g.screenSize.Y),
+		),
+	}
+}
+
 func (g *Game) Draw(screen *ebiten.Image) {
 	if g.isDisplayingMenu {
 		g.menuBackgroundScale = MaxF32(menuBackgroundTargetScale, g.menuBackgroundScale - menuBackgroundFadeSpeed)
@@ -265,7 +284,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	g.drawRoad(screen, colorScale)
 	for _, border := range g.courseBorders {
-		drawBorder(screen, border, colorScale, edgeStripeColorScale)
+		g.drawBorder(screen, border, colorScale, edgeStripeColorScale)
 	}
 	g.drawTruck(screen, colorScale)
 
@@ -291,8 +310,8 @@ func MinF32(x float32, y float32) float32 {
 }
 
 func (g *Game) drawRoad(screen *ebiten.Image, colorScale ebiten.ColorScale) {
-	for x := 0; x < g.screenSize.X; x += g.roadImage.Bounds().Dx() {
-		for y := 0; y < g.screenSize.Y; y += g.roadImage.Bounds().Dy() {
+	for x := int(-g.viewTopLeft.X); x < g.screenSize.X; x += g.roadImage.Bounds().Dx() {
+		for y := int(-g.viewTopLeft.Y); y < g.screenSize.Y; y += g.roadImage.Bounds().Dy() {
 			geom := ebiten.GeoM{}
 			geom.Translate(float64(x), float64(y))
 			screen.DrawImage(g.roadImage, &ebiten.DrawImageOptions{ColorScale: colorScale, GeoM: geom})
@@ -300,12 +319,12 @@ func (g *Game) drawRoad(screen *ebiten.Image, colorScale ebiten.ColorScale) {
 	}
 }
 
-func drawBorder(screen *ebiten.Image, border *border, colorScale ebiten.ColorScale, edgeStripeColorScale ebiten.ColorScale) {
+func (g *Game) drawBorder(screen *ebiten.Image, border *border, colorScale ebiten.ColorScale, edgeStripeColorScale ebiten.ColorScale) {
 	path := vector.Path{}
 	startLine := border.edges[0].centerLine
-	path.MoveTo(float32(startLine.x1), float32(startLine.y1))
+	path.MoveTo(float32(startLine.x1 - g.viewTopLeft.X), float32(startLine.y1 - g.viewTopLeft.Y))
 	for _, borderEdge := range border.edges {
-		path.LineTo(float32(borderEdge.centerLine.x2), float32(borderEdge.centerLine.y2))
+		path.LineTo(float32(borderEdge.centerLine.x2 - g.viewTopLeft.X), float32(borderEdge.centerLine.y2 - g.viewTopLeft.Y))
 	}
 	vector.StrokePath(
 		screen,
@@ -313,10 +332,10 @@ func drawBorder(screen *ebiten.Image, border *border, colorScale ebiten.ColorSca
 		&vector.StrokeOptions{Width: float32(border.width)},
 		&vector.DrawPathOptions{AntiAlias: true, ColorScale: colorScale})
 	
-	drawEdgeStripes(screen, border, edgeStripeColorScale)
+	g.drawEdgeStripes(screen, border, edgeStripeColorScale)
 }
 
-func drawEdgeStripes(screen *ebiten.Image, border *border, colorScale ebiten.ColorScale) {
+func (g *Game) drawEdgeStripes(screen *ebiten.Image, border *border, colorScale ebiten.ColorScale) {
 	path := vector.Path{}
 	edgeStripePoint := float64(edgeStripeGap + edgeStripeWidth / 2)
 	for _, edge := range border.edges {
@@ -329,8 +348,8 @@ func drawEdgeStripes(screen *ebiten.Image, border *border, colorScale ebiten.Col
 		for ; edgeStripePoint < edgeLength - edgeStripeWidth / 2; edgeStripePoint += edgeStripeWidth + edgeStripeGap {
 			stripeMidpointX := ((edgeLength - edgeStripePoint) * centerLine.x1 + edgeStripePoint * centerLine.x2) / edgeLength
 			stripeMidpointY := ((edgeLength - edgeStripePoint) * centerLine.y1 + edgeStripePoint * centerLine.y2) / edgeLength
-			path.MoveTo(float32(stripeMidpointX - stripeEndOffsetX), float32(stripeMidpointY - stripeEndOffsetY))
-			path.LineTo(float32(stripeMidpointX + stripeEndOffsetX), float32(stripeMidpointY + stripeEndOffsetY))
+			path.MoveTo(float32(stripeMidpointX - stripeEndOffsetX - g.viewTopLeft.X), float32(stripeMidpointY - stripeEndOffsetY - g.viewTopLeft.Y))
+			path.LineTo(float32(stripeMidpointX + stripeEndOffsetX - g.viewTopLeft.X), float32(stripeMidpointY + stripeEndOffsetY - g.viewTopLeft.Y))
 		}
 		edgeStripePoint = math.Max(edgeStripePoint - edgeLength, edgeStripeWidth)
 	}
@@ -349,7 +368,7 @@ func (g *Game) drawTruck(screen *ebiten.Image, colorScale ebiten.ColorScale) {
 	geom := ebiten.GeoM{}
 	geom.Translate(-g.truck.spriteLength * (1 - frontRatio), -g.truck.spriteWidth / 2)
 	geom.Rotate(g.truck.direction)
-	geom.Translate(g.truck.frontX, g.truck.frontY)
+	geom.Translate(g.truck.frontX - g.viewTopLeft.X, g.truck.frontY - g.viewTopLeft.Y)
 	screen.DrawImage(g.truckImage, &ebiten.DrawImageOptions{ColorScale: colorScale, GeoM: geom})
 }
 
@@ -359,12 +378,14 @@ func (g *Game) drawTruckWheel(screen *ebiten.Image, offset float64) {
 	geom.Rotate(g.truck.wheelTurnDirection)
 	geom.Translate(-g.truck.length * frontWheelLengthRatio, offset)
 	geom.Rotate(g.truck.direction)
-	geom.Translate(g.truck.frontX, g.truck.frontY)
+	geom.Translate(g.truck.frontX - g.viewTopLeft.X, g.truck.frontY - g.viewTopLeft.Y)
 	screen.DrawImage(g.wheelImage, &ebiten.DrawImageOptions{GeoM: geom})
 }
 
 var menuBackgroundTargetScale float32 = 0.5
 var menuBackgroundFadeSpeed float32 = 0.05
+
+var courseSize = components.Coordinatesf{X: 1600, Y: 1400}
 
 var edgeStripeWidth = 15.0
 var edgeStripeGap = 20.0
