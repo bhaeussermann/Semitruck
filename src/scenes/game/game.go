@@ -17,7 +17,7 @@ import (
 )
 
 type Game struct {
-	screenSize components.Coordinates
+	screenSize components.Coordinatesf
 	roadImage *ebiten.Image
 	truckImage *ebiten.Image
 	wheelImage *ebiten.Image
@@ -73,7 +73,7 @@ func NewGame(exitToScene scenes.GetNextScene) (scenes.Scene, error) {
 			frontX: 350,
 			frontY: 150,
 		},
-		screenSize: components.Coordinates{},
+		screenSize: components.Coordinatesf{},
 		isDisplayingMenu: false,
 		initializeMenu: sync.Once{},
 		menu: &menu.Menu{},
@@ -92,7 +92,7 @@ func getAllEdgeLines(borders []*border) []*edgeLine {
 }
 
 func (g *Game) SetScreenSize(width int, height int) {
-	g.screenSize = components.Coordinates{X: width, Y: height}
+	g.screenSize = components.Coordinatesf{X: float64(width), Y: float64(height)}
 	if g.isDisplayingMenu {
 		g.menu.SetScreenSize(width, height)
 	}
@@ -256,16 +256,26 @@ type intersectingLinePair struct {
 
 func (g *Game) updateViewLocation() {
 	truckCenterX, truckCenterY := g.truck.getCenter()
-	g.viewTopLeft = components.Coordinatesf {
-		X: math.Min(
-			math.Max(truckCenterX - float64(g.screenSize.X) / 2, 0),
-			courseSize.X - float64(g.screenSize.X),
-		),
-		Y: math.Min(
-			math.Max(truckCenterY - float64(g.screenSize.Y) / 2, 0),
-			courseSize.Y - float64(g.screenSize.Y),
-		),
+
+	var left, top float64
+	if g.screenSize.X > courseSize.X {
+		left = (courseSize.X - g.screenSize.X) / 2
+	} else {
+		left = math.Min(
+			math.Max(truckCenterX - g.screenSize.X / 2, 0),
+			courseSize.X - g.screenSize.X,
+		)
 	}
+	if g.screenSize.Y > courseSize.Y {
+		top = (courseSize.Y - g.screenSize.Y) / 2
+	} else {
+		top = math.Min(
+			math.Max(truckCenterY - g.screenSize.Y / 2, 0),
+			courseSize.Y - g.screenSize.Y,
+		)
+	}
+
+	g.viewTopLeft = components.Coordinatesf { X: left, Y: top }
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
@@ -310,8 +320,14 @@ func MinF32(x float32, y float32) float32 {
 }
 
 func (g *Game) drawRoad(screen *ebiten.Image, colorScale ebiten.ColorScale) {
-	for x := int(-g.viewTopLeft.X); x < g.screenSize.X; x += g.roadImage.Bounds().Dx() {
-		for y := int(-g.viewTopLeft.Y); y < g.screenSize.Y; y += g.roadImage.Bounds().Dy() {
+	imageWidth, imageHeight := g.roadImage.Bounds().Dx(), g.roadImage.Bounds().Dy()
+	leftBound := -(int(g.viewTopLeft.X) % imageWidth)
+	if leftBound > 0 { leftBound -= imageWidth }
+	topBound := -(int(g.viewTopLeft.Y) % imageHeight)
+	if topBound > 0 { topBound -= imageHeight }
+	
+	for x := leftBound; x < int(g.screenSize.X); x += imageWidth {
+		for y := topBound; y < int(g.screenSize.Y); y += imageHeight {
 			geom := ebiten.GeoM{}
 			geom.Translate(float64(x), float64(y))
 			screen.DrawImage(g.roadImage, &ebiten.DrawImageOptions{ColorScale: colorScale, GeoM: geom})
