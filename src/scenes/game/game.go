@@ -346,7 +346,7 @@ func (g *Game) drawBorder(screen *ebiten.Image, border *border, colorScale ebite
 		screen,
 		&path,
 		&vector.StrokeOptions{Width: float32(border.width)},
-		&vector.DrawPathOptions{AntiAlias: true, ColorScale: colorScale})
+		&vector.DrawPathOptions{AntiAlias: false, ColorScale: colorScale})
 	
 	g.drawEdgeStripes(screen, border, edgeStripeColorScale)
 }
@@ -374,7 +374,7 @@ func (g *Game) drawEdgeStripes(screen *ebiten.Image, border *border, colorScale 
 		screen,
 		&path,
 		&vector.StrokeOptions{Width: float32(edgeStripeWidth)},
-		&vector.DrawPathOptions{AntiAlias: true, ColorScale: colorScale})
+		&vector.DrawPathOptions{AntiAlias: false, ColorScale: colorScale})
 }
 
 func (g *Game) drawTruck(screen *ebiten.Image, colorScale ebiten.ColorScale) {
