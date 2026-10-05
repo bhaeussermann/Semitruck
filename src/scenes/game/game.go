@@ -118,9 +118,18 @@ func (g *Game) Update() scenes.SceneChange {
 		}
 	}
 
-	g.truck.updateMovement()
+	truck := g.truck
+	initialTruckFrontX, initialTruckFrontY := truck.frontX, truck.frontY
+	
+	truck.updateMovement()
 
-	g.computeCollisions()
+	isStuck := g.processCollision() && g.isColliding()
+	if isStuck {
+		truck.frontX, truck.frontY = initialTruckFrontX, initialTruckFrontY
+		truck.bumpVelocityX = 0
+		truck.bumpVelocityY = 0
+		truck.speed = 0
+	}
 
 	g.updateViewLocation()
 
@@ -139,31 +148,16 @@ func (g *Game) createMenu() {
 	}
 }
 
-func (g *Game) computeCollisions() {
+func (g *Game) processCollision() bool {
 	truck := g.truck
-
-	frontLeftX := truck.frontX + math.Sin(truck.direction) * truck.width / 2
-	frontLeftY := truck.frontY - math.Cos(truck.direction) * truck.width / 2
-	rearLeftX := frontLeftX - math.Cos(truck.direction) * truck.length
-	rearLeftY := frontLeftY - math.Sin(truck.direction) * truck.length
-	frontRightX := truck.frontX - math.Sin(truck.direction) * truck.width / 2
-	frontRightY := truck.frontY + math.Cos(truck.direction) * truck.width / 2
-	rearRightX := frontRightX - math.Cos(truck.direction) * truck.length
-	rearRightY := frontRightY - math.Sin(truck.direction) * truck.length
-
-	truckEdges := []*edgeLine{
-		createEdgeLine(frontLeftX, frontLeftY, frontRightX, frontRightY, 0),
-		createEdgeLine(rearLeftX, rearLeftY, rearRightX, rearRightY, 0),
-		createEdgeLine(frontLeftX, frontLeftY, rearLeftX, rearLeftY, 0),
-		createEdgeLine(frontRightX, frontRightY, rearRightX, rearRightY, 0),
-	}
+	truckEdges := truck.getEdges()
 
 	truckCenterX, truckCenterY := truck.getCenter()
 	for _, truckEdge := range truckEdges {
 		for _, courseEdgeLine := range g.courseEdgeLines {
 			if truckEdgeSkipsOverEdgeLine(truckCenterX, truckCenterY, truckEdge, courseEdgeLine, g.courseEdgeLines) {
 				truck.bump(truckEdge, courseEdgeLine)
-				return
+				return true
 			}
 		}
 	}
@@ -176,10 +170,25 @@ func (g *Game) computeCollisions() {
 			}
 		}
 	}
-	if len(intersectingLinePairs) != 0 {
-		truckEdge, edgeLine := getDeepestIntersectingTruckEdgeAndEdgeLine(intersectingLinePairs)
-		truck.bump(truckEdge, edgeLine)
+
+	if len(intersectingLinePairs) == 0 {
+		return false
 	}
+
+	truckEdge, edgeLine := getDeepestIntersectingTruckEdgeAndEdgeLine(intersectingLinePairs)
+	truck.bump(truckEdge, edgeLine)
+	return true
+}
+
+func (g *Game) isColliding() bool {
+	for _, truckEdge := range g.truck.getEdges() {
+		for _, courseEdgeLine := range g.courseEdgeLines {
+			if truckEdge.genuinelyIntersectsLineNotJustTouching(courseEdgeLine) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func truckEdgeSkipsOverEdgeLine(truckCenterX float64, truckCenterY float64, truckEdgeLine *edgeLine, edgeLine *edgeLine, allEdgeLines []*edgeLine) bool {

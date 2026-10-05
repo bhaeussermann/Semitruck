@@ -81,7 +81,7 @@ func (t *truck) propel() {
 	rearWheelY := t.frontY - t.length * rearWheelLengthRatio * math.Sin(t.direction)
 
 	if math.Abs(t.wheelTurnDirection) > epsilon {
-		effectiveTurnAngle := math.Asin(t.speed * math.Sin(t.wheelTurnDirection*2) / math.Sqrt(t.speed*t.speed + t.wheelDistance*t.wheelDistance + 2 * t.speed * t.length * math.Cos(t.wheelTurnDirection*2)))
+		effectiveTurnAngle := math.Asin(t.speed * math.Sin(t.wheelTurnDirection * 2) / math.Sqrt(t.speed * t.speed + t.wheelDistance * t.wheelDistance + 2 * t.speed * t.length * math.Cos(t.wheelTurnDirection * 2)))
 		t.direction += effectiveTurnAngle
 		if t.direction > math.Pi {
 			t.direction -= 2 * math.Pi
@@ -96,10 +96,28 @@ func (t *truck) propel() {
 	t.frontY = rearWheelY + t.length * rearWheelLengthRatio * math.Sin(t.direction)
 }
 
+func (t *truck) getEdges() []*edgeLine {
+	frontLeftX := t.frontX + math.Sin(t.direction) * t.width / 2
+	frontLeftY := t.frontY - math.Cos(t.direction) * t.width / 2
+	rearLeftX := frontLeftX - math.Cos(t.direction) * t.length
+	rearLeftY := frontLeftY - math.Sin(t.direction) * t.length
+	frontRightX := t.frontX - math.Sin(t.direction) * t.width / 2
+	frontRightY := t.frontY + math.Cos(t.direction) * t.width / 2
+	rearRightX := frontRightX - math.Cos(t.direction) * t.length
+	rearRightY := frontRightY - math.Sin(t.direction) * t.length
+
+	return []*edgeLine{
+		createEdgeLine(frontLeftX, frontLeftY, frontRightX, frontRightY, 0),
+		createEdgeLine(rearLeftX, rearLeftY, rearRightX, rearRightY, 0),
+		createEdgeLine(frontLeftX, frontLeftY, rearLeftX, rearLeftY, 0),
+		createEdgeLine(frontRightX, frontRightY, rearRightX, rearRightY, 0),
+	}
+}
+
 func (t *truck) bump(truckEdge *edgeLine, courseEdgeLine *edgeLine) {
 	truckVelocityX := t.speed * math.Cos(t.direction) + t.bumpVelocityX
 	truckVelocityY := t.speed * math.Sin(t.direction) + t.bumpVelocityY
-	truckSpeed := math.Sqrt(truckVelocityX*truckVelocityX + truckVelocityY*truckVelocityY)
+	truckSpeed := math.Sqrt(truckVelocityX * truckVelocityX + truckVelocityY * truckVelocityY)
 	truckMovementDirection := math.Atan2(truckVelocityY, truckVelocityX)
 
 	courseEdgeLineDirection := courseEdgeLine.getDirection()

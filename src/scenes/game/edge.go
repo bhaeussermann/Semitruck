@@ -138,6 +138,28 @@ func (l1 *edgeLine) intersectsLine(l2 *edgeLine) bool {
 	return (l1.lowX <= x && x <= l1.highX) && (l2.lowX <= x && x <= l2.highX)
 }
 
+func (l1 *edgeLine) genuinelyIntersectsLineNotJustTouching(l2 *edgeLine) bool {
+	if l1.isVertical() {
+		if l2.isVertical() {
+			return false
+		}
+		x := l1.c
+		if (x - 1 <= l2.lowX) || (x + 1 >= l2.highX) { return false }
+		y := l2.getY(x)
+		return l1.lowX < y && y < l1.highX
+	}
+
+	if l2.isVertical() {
+		x := l2.c
+		if (x - 1 <= l1.lowX) || (x + 1 >= l1.highX) { return false }
+		y := l1.getY(x)
+		return l2.lowX < y && y < l2.highX
+	}
+
+	x := (l2.c - l1.c) / (l1.m - l2.m)
+	return (l1.lowX + 1 < x && x < l1.highX - 1) && (l2.lowX + 1 < x && x < l2.highX - 1)
+}
+
 func (l1 *edgeLine) getIntersectPoint(l2 *edgeLine) point {
 	if l1.isVertical() {
 		x := l1.c
