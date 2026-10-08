@@ -7,18 +7,23 @@ import (
 )
 
 type truck struct {
-	spriteWidth float64
-	spriteLength float64
-	width float64
-	length float64
+	spriteWidth, spriteLength float64
+	width, length float64
 	wheelDistance float64
-	frontX float64
-	frontY float64
+	couplingPlateLocation float64
+	frontX, frontY float64
 	direction float64
 	wheelTurnDirection float64
 	speed float64
-	bumpVelocityX float64
-	bumpVelocityY float64
+	bumpVelocityX, bumpVelocityY float64
+}
+
+func (t *truck) getDimensions() *dimensions {
+	return &dimensions{t.width, t.length}
+}
+
+func (t *truck) getLocation() *location {
+	return &location{t.frontX, t.frontY, t.direction}
 }
 
 func (t *truck) updateMovement() {
@@ -94,24 +99,6 @@ func (t *truck) propel() {
 	rearWheelY += t.speed * math.Sin(t.direction)
 	t.frontX = rearWheelX + t.length * rearWheelLengthRatio * math.Cos(t.direction)
 	t.frontY = rearWheelY + t.length * rearWheelLengthRatio * math.Sin(t.direction)
-}
-
-func (t *truck) getEdges() []*edgeLine {
-	frontLeftX := t.frontX + math.Sin(t.direction) * t.width / 2
-	frontLeftY := t.frontY - math.Cos(t.direction) * t.width / 2
-	rearLeftX := frontLeftX - math.Cos(t.direction) * t.length
-	rearLeftY := frontLeftY - math.Sin(t.direction) * t.length
-	frontRightX := t.frontX - math.Sin(t.direction) * t.width / 2
-	frontRightY := t.frontY + math.Cos(t.direction) * t.width / 2
-	rearRightX := frontRightX - math.Cos(t.direction) * t.length
-	rearRightY := frontRightY - math.Sin(t.direction) * t.length
-
-	return []*edgeLine{
-		createEdgeLine(frontLeftX, frontLeftY, frontRightX, frontRightY, 0),
-		createEdgeLine(rearLeftX, rearLeftY, rearRightX, rearRightY, 0),
-		createEdgeLine(frontLeftX, frontLeftY, rearLeftX, rearLeftY, 0),
-		createEdgeLine(frontRightX, frontRightY, rearRightX, rearRightY, 0),
-	}
 }
 
 func (t *truck) bump(truckEdge *edgeLine, courseEdgeLine *edgeLine) {

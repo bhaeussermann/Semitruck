@@ -20,6 +20,7 @@ type Game struct {
 	screenSize components.Coordinatesf
 	roadImage *ebiten.Image
 	truckImage *ebiten.Image
+	semitrailerImage *ebiten.Image
 	wheelImage *ebiten.Image
 
 	isDisplayingMenu bool
@@ -32,6 +33,7 @@ type Game struct {
 	courseBorders []*border
 	courseEdgeLines []*edgeLine
 	truck *truck
+	semitrailer *semitrailer
 }
 
 func NewGame(exitToScene scenes.GetNextScene) (scenes.Scene, error) {
@@ -47,17 +49,25 @@ func NewGame(exitToScene scenes.GetNextScene) (scenes.Scene, error) {
 	truckSpriteWidth := float64(truckImage.Bounds().Dy())
 	truckSpriteLength := float64(truckImage.Bounds().Dx())
 
+	semitrailerImage, _, error := ebitenutil.NewImageFromFile("../images/semitrailer.png")
+	if error != nil {
+		return nil, error
+	}
+	semitrailerSpriteWidth := float64(semitrailerImage.Bounds().Dy())
+	semitrailerSpriteLength := float64(semitrailerImage.Bounds().Dx())
+
 	wheelImage := ebiten.NewImage(wheelLength, wheelWidth)
 	wheelImage.Fill(color.Black)
 
 	courseBorders := []*border{
 		createBorder([]point{{courseSize.X - 10, courseSize.Y - 10}, {10, courseSize.Y - 10}, {10, 10}, {courseSize.X - 10, 10}, {courseSize.X - 10, courseSize.Y - 10}}, 20),
-		createBorder([]point{{100, 450}, {400, 300}, {550, 280}, {550, 120}}, 20),
-		createBorder([]point{{350, 620}, {750, 620}}, 20),
+		createBorder([]point{{200, 550}, {500, 400}, {650, 380}, {650, 220}}, 20),
+		createBorder([]point{{450, 620}, {850, 620}}, 20),
 	}
 	return &Game{
 		roadImage: roadImage,
 		truckImage: truckImage,
+		semitrailerImage: semitrailerImage,
 		wheelImage: wheelImage,
 		exitToScene: exitToScene,
 		menuBackgroundScale: 1,
@@ -70,8 +80,18 @@ func NewGame(exitToScene scenes.GetNextScene) (scenes.Scene, error) {
 			width: widthRatio * truckSpriteWidth,
 			length: (rearRatio - frontRatio) * truckSpriteLength,
 			wheelDistance: truckSpriteLength * (rearWheelLengthRatio - frontWheelLengthRatio),
+			couplingPlateLocation: (couplingPlateRatio - frontRatio) * truckSpriteLength,
 			frontX: 350,
 			frontY: 150,
+		},
+		semitrailer: &semitrailer{
+			spriteWidth: semitrailerSpriteWidth,
+			spriteLength: semitrailerSpriteLength,
+			width: semitrailerSpriteWidth,
+			length: (1 - semitrailerFrontRatio) * semitrailerSpriteLength,
+			kingPinLocation: (kingPinRatio - semitrailerFrontRatio) * semitrailerSpriteLength,
+			frontX: 350,
+			frontY: 800,
 		},
 		screenSize: components.Coordinatesf{},
 		isDisplayingMenu: false,
@@ -150,13 +170,14 @@ func (g *Game) createMenu() {
 
 func (g *Game) processCollision() bool {
 	truck := g.truck
-	truckEdges := truck.getEdges()
+	truckEdges := getEdges(truck)
+	obstacleEdgeLines := append(getEdges(g.semitrailer), g.courseEdgeLines...)
 
 	truckCenterX, truckCenterY := truck.getCenter()
 	for _, truckEdge := range truckEdges {
-		for _, courseEdgeLine := range g.courseEdgeLines {
-			if truckEdgeSkipsOverEdgeLine(truckCenterX, truckCenterY, truckEdge, courseEdgeLine, g.courseEdgeLines) {
-				truck.bump(truckEdge, courseEdgeLine)
+		for _, obstacleEdgeLine := range obstacleEdgeLines {
+			if truckEdgeSkipsOverEdgeLine(truckCenterX, truckCenterY, truckEdge, obstacleEdgeLine, g.courseEdgeLines) {
+				truck.bump(truckEdge, obstacleEdgeLine)
 				return true
 			}
 		}
@@ -164,9 +185,9 @@ func (g *Game) processCollision() bool {
 
 	intersectingLinePairs := []*intersectingLinePair{}
 	for _, truckEdge := range truckEdges {
-		for _, courseEdgeLine := range g.courseEdgeLines {
-			if truckEdge.intersectsLine(courseEdgeLine) {
-				intersectingLinePairs = append(intersectingLinePairs, &intersectingLinePair{truckEdge, courseEdgeLine})
+		for _, obstacleEdgeLine := range obstacleEdgeLines {
+			if truckEdge.intersectsLine(obstacleEdgeLine) {
+				intersectingLinePairs = append(intersectingLinePairs, &intersectingLinePair{truckEdge, obstacleEdgeLine})
 			}
 		}
 	}
@@ -181,9 +202,10 @@ func (g *Game) processCollision() bool {
 }
 
 func (g *Game) isColliding() bool {
-	for _, truckEdge := range g.truck.getEdges() {
-		for _, courseEdgeLine := range g.courseEdgeLines {
-			if truckEdge.genuinelyIntersectsLineNotJustTouching(courseEdgeLine) {
+	obstacleEdgeLines := append(getEdges(g.semitrailer), g.courseEdgeLines...)
+	for _, truckEdge := range getEdges(g.truck) {
+		for _, obstacleEdgeLine := range obstacleEdgeLines {
+			if truckEdge.genuinelyIntersectsLineNotJustTouching(obstacleEdgeLine) {
 				return true
 			}
 		}
@@ -306,6 +328,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.drawBorder(screen, border, colorScale, edgeStripeColorScale)
 	}
 	g.drawTruck(screen, colorScale)
+	g.drawSemitrailer(screen, colorScale)
 
 	if g.isDisplayingMenu {
 		g.menu.Draw(screen)
@@ -407,6 +430,14 @@ func (g *Game) drawTruckWheel(screen *ebiten.Image, offset float64) {
 	screen.DrawImage(g.wheelImage, &ebiten.DrawImageOptions{GeoM: geom})
 }
 
+func (g *Game) drawSemitrailer(screen *ebiten.Image, colorScale ebiten.ColorScale) {
+	geom := ebiten.GeoM{}
+	geom.Translate(-g.semitrailer.spriteLength * (1 - semitrailerFrontRatio), -g.semitrailer.spriteWidth / 2)
+	geom.Rotate(g.semitrailer.direction)
+	geom.Translate(g.semitrailer.frontX - g.viewTopLeft.X, g.semitrailer.frontY - g.viewTopLeft.Y)
+	screen.DrawImage(g.semitrailerImage, &ebiten.DrawImageOptions{ColorScale: colorScale, GeoM: geom})
+}
+
 var menuBackgroundTargetScale float32 = 0.5
 var menuBackgroundFadeSpeed float32 = 0.05
 
@@ -422,3 +453,6 @@ var frontWheelLengthRatio = 0.15
 var rearWheelLengthRatio = 0.85
 var wheelLength = 30
 var wheelWidth = 12
+var couplingPlateRatio = 0.9
+var kingPinRatio = 0.28
+var semitrailerFrontRatio = 0.4
